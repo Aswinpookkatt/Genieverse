@@ -1,0 +1,7 @@
+streamlit
+openai
+databricks-sql-connector[pyarrow]
+pandas
+google-generativeai
+tabulate
+duckdb
