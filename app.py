@@ -122,11 +122,11 @@ def handle_visualization(prompt, clarification_history=None):
 
     # Show now
     with st.chat_message("assistant",avatar=ASSISTANT_AVATAR):
-        st.write("Visualization generated.")
+        st.write("Visual generated.")
     if fig is not None:
-        st.subheader("Visualization")
+        st.subheader(fig['data'][0]['type'].capitalize()+" Chart")
         st.plotly_chart(fig, use_container_width=True)
-
+        logger.info("Display Fig :\n%s",fig['data'][0]['type'].capitalize())
 # --- Data Flow ---
 def handle_data(prompt, clarification_history=None):
     clarification_history = clarification_history or []
@@ -161,13 +161,13 @@ def handle_data(prompt, clarification_history=None):
 
     # Show now
     with st.chat_message("assistant",avatar=ASSISTANT_AVATAR):
-        st.write("Generated SQL and fetched results.")
+        st.write("Fetched results.")
 
-    if sql_query:
-        st.subheader("Generated SQL")
-        st.code(sql_query, language="sql")
-    else:
-        st.warning("No SQL query generated.")
+    # if sql_query:
+    #     st.subheader("Generated SQL")
+    #     st.code(sql_query, language="sql")
+    # else:
+    #     st.warning("No SQL query generated.")
 
     if df is not None and not df.empty:
         st.subheader("Query Results")
