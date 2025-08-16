@@ -6,10 +6,11 @@ import json
 import toml
 import logging
 from prompts import SYSTEM_PROMPT
-from utils import get_schema, run_query
+from utils import *
+import hashlib
 
 from data_scanner.data_profiler import DataProfiler
-#from data_scanner.data_quality import DataQualityChecker
+from data_scanner.data_quality import DataQualityChecker
 
 
 # Configure the logger
@@ -92,13 +93,13 @@ def handle_anomaly_questions(prompt, scan_results):
                     for anomaly in profile['anomalies']:
                         response += f"• {anomaly['message']}\n"
         
-        # # Quality issues
-        # if scan_results['quality_issues']:
-        #     response += f"\n⚠️ **{len(scan_results['quality_issues'])} Quality Issues:**\n"
-        #     for issue in scan_results['quality_issues']:
-        #         response += f"• {issue['message']}\n"
+        # Quality issues
+        if scan_results['quality_issues']:
+            response += f"\n⚠️ **{len(scan_results['quality_issues'])} Quality Issues:**\n"
+            for issue in scan_results['quality_issues']:
+                response += f"• {issue['message']}\n"
         
-        if total_anomalies == 0 : #and len(scan_results['quality_issues']) == 0:
+        if total_anomalies == 0 and len(scan_results['quality_issues']) == 0:
             response += "✅ No significant anomalies or quality issues detected!"
         
         return response
@@ -112,7 +113,7 @@ def handle_anomaly_questions(prompt, scan_results):
 if "data_analysis" not in st.session_state:
     st.session_state.data_analysis = {
         'profiler': DataProfiler(st.session_state.schema),
-        #'quality_checker': DataQualityChecker(st.session_state.schema),
+        'quality_checker': DataQualityChecker(st.session_state.schema),
         'scan_results': None
     }
 
@@ -128,35 +129,36 @@ with st.sidebar:
                 profile_results[table] = st.session_state.data_analysis['profiler'].profile_table(table)
             
             # Run quality checks
-            #quality_issues = st.session_state.data_analysis['quality_checker'].run_quality_checks()
+            quality_issues = st.session_state.data_analysis['quality_checker'].run_quality_checks()
             
             # Store results
             st.session_state.data_analysis['scan_results'] = {
                 'profiles': profile_results,
-                #'quality_issues': quality_issues
+                'quality_issues': quality_issues
             }
             
             # Add findings to chat
             findings_summary = f"**Data Scan Complete!**\n\n"
             findings_summary += f"🔍 **Anomalies Found:** {sum(len(p['anomalies']) for p in profile_results.values())}\n"
-            #findings_summary += f"⚠️ **Quality Issues:** {len(quality_issues)}\n\n"
+            findings_summary += f"⚠️ **Quality Issues:** {len(quality_issues)}\n\n"
             
-            # if quality_issues:
-            #     findings_summary += "**Top Issues:**\n"
-            #     for issue in quality_issues[:3]:
-            #         findings_summary += f"• {issue['message']}\n"
+            if quality_issues:
+                findings_summary += "**Top Issues:**\n"
+                for issue in quality_issues[:3]:
+                    findings_summary += f"• {issue['message']}\n"
             
             st.session_state.chat_history.append({
                 "role": "assistant", 
-                "content": findings_summary
+                "content": findings_summary,
+                "avatar": "static/genie.png"
             })
     
     # Show scan status
     if st.session_state.data_analysis['scan_results']:
         st.success("✅ Latest scan completed")
         scan_results = st.session_state.data_analysis['scan_results']
-        st.metric("Anomalies", sum(len(p['anomalies']) for p in scan_results['profiles'].values()))
-        #st.metric("Quality Issues", len(scan_results['quality_issues']))
+        st.metric("Data Anomalies", sum(len(p['anomalies']) for p in scan_results['profiles'].values()))
+        st.metric("Quality Issues", len(scan_results['quality_issues']))
 
 #------------------------- Data Profiler Ends----------------------------
 # Prompt user and handle submission
@@ -170,9 +172,9 @@ if prompt := st.chat_input("Ask a question about your data"):
     # Check for anomaly-related questions first
     anomaly_response = handle_anomaly_questions(prompt, st.session_state.data_analysis['scan_results'])
     if anomaly_response:
-        st.session_state.chat_history.append({"role": "assistant", "content": anomaly_response})
+        st.session_state.chat_history.append({"role": "assistant", "content": anomaly_response, "avatar": "static/genie.png"})
         st.rerun()
-        
+
     else:
 
         # 2) Construct your LLM prompt (including schema) and get SQL
@@ -187,20 +189,40 @@ if prompt := st.chat_input("Ask a question about your data"):
         sql_query = response.text.strip().strip("```sql")
         logger.info("sql_query :\n%s", sql_query)
 
-        # 3) Execute SQL
-        df = run_query(sql_query)
 
-        # 4) Prepare AI’s reply content
-        ai_content = f"**GENERATED SQL**\n```sql\n{sql_query}\n```"
+        #----------------------------------- Detect dangerous queries ---------------------
+       
 
+        # Create stable hash from the query text
+        query_hash = hashlib.md5(sql_query.encode()).hexdigest()
+        logger.info("Hash "+query_hash)
 
-        # 5) Append and render AI’s message
-        st.session_state.chat_history.extend([
-            {"role": "assistant", "content": ai_content, "avatar": "static/genie.png"},
-            {"role": "assistant", "content": df.to_markdown(), "avatar": "static/genie.png"}
-            ])
-        
-        with st.chat_message("assistant", avatar='static/genie.png'):
-            st.markdown(ai_content)
-            st.subheader("Results")
-            st.dataframe(df)
+        confirm_key = f"confirm_{query_hash}"
+        confirmed_state_key =  f"confirmed_{query_hash}"
+
+        logger.info(confirm_key)
+
+        def confirm_execution():
+            st.session_state[confirmed_state_key] = True
+
+        if is_modification_query(sql_query):
+            st.warning("⚠️ This query will modify your data. Please review and confirm before execution.")
+            st.code(sql_query)
+            
+            if st.session_state.get(confirmed_state_key, False):
+                # Execute the query after confirmation
+                df = run_query(sql_query)
+                render_sql_result(sql_query, df, st)
+                st.success("✅ Query executed successfully.")
+            else:
+                st.button("Confirm and Execute", key=confirm_key, on_click=confirm_execution)
+                st.info("Query not executed. Please confirm to proceed.")
+            
+           
+        else:
+            
+            # 3) Execute SQL
+            logger.info("Safe query detected. Executing directly.")
+            df = run_query(sql_query)
+            render_sql_result(sql_query,df, st)
+            logger.info("Rendering completed successfully!")

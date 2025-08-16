@@ -1,4 +1,4 @@
-item_key,item_name,desc,unit_price,man_country,supplier,unit
+item_key,item_name,description,unit_price,man_country,supplier,unit
 I00001,A&W Root Beer - 12 oz cans,a. Beverage - Soda,11.5,Netherlands,Bolsius Boxmeer,cans
 I00002,A&W Root Beer Diet - 12 oz cans,a. Beverage - Soda,6.75,poland,CHROMADURLIN S.A.S,cans
 I00003,Barq's Root Beer - 12 oz cans,a. Beverage - Soda,6.75,Bangladesh,DENIMACH LTD,cans
@@ -112,11 +112,11 @@ I00110,Starbuck's Pike Place,Coffee Ground,22.5,Cambodia,NINGBO SEDUNO IMP & EXP
 I00111,K Cups Hot Cocoa,Coffee Hot Cocoa,16,Netherlands,Bolsius Boxmeer,ct
 I00112,Swiss Miss Hot Cocoa Mix 1 oz,Coffee Hot Cocoa,14,India,Indo Count Industries Ltd,ct.
 I00113,K Cups - McCafe Premium Roast,Coffee K-Cups,42,India,Indo Count Industries Ltd,ct
-I00114,K Cups – Starbuck's Pike Place,Coffee K-Cups,44,Lithuania,BIGSO AB,ct
+I00114,K Cups ï¿½ Starbuck's Pike Place,Coffee K-Cups,44,Lithuania,BIGSO AB,ct
 I00115,K Cups Daily Chef Columbian Supremo,Coffee K-Cups,53,India,Indo Count Industries Ltd,ct
 I00116,K Cups Dunkin Donuts Medium Roast,Coffee K-Cups,48,United States,MAESA SAS,ct
 I00117,K Cups Folgers Lively Columbian,Coffee K-Cups,46,Cambodia,NINGBO SEDUNO IMP & EXP CO.LTD,ct
-I00118,K Cups –Organic Breakfast Blend,Coffee K-Cups,42,Finland,HARDFORD AB,ct
+I00118,K Cups ï¿½Organic Breakfast Blend,Coffee K-Cups,42,Finland,HARDFORD AB,ct
 I00119,K Cups Original Donut Shop Med. Roast,Coffee K-Cups,53,India,Indo Count Industries Ltd,ct
 I00120,K Cups - Green Tea,Coffee K-Cups Tea,9,poland,CHROMADURLIN S.A.S,ct
 I00121,Stirrers Coffee Stirs 7inch,Coffee Stirrers,17,China,"CHERRY GROUP CO.,LTD",ct

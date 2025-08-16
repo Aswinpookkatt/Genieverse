@@ -39,6 +39,26 @@ def run_query(query: str) -> pd.DataFrame:
     conn = get_connection()
     result_df = conn.execute(query).fetchdf()
     return result_df
+
+
+def is_modification_query(sql_query: str) -> bool:
+    """Check if the SQL query is a data modification statement."""
+    sql = sql_query.strip().lower()
+    return sql.startswith("update") or sql.startswith("delete") or sql.startswith("insert") or " drop " in sql
+
+def render_sql_result(sql_query, df, st):
+    ai_content = f"**GENERATED SQL**\n"
+    st.session_state.chat_history.extend([
+        {"role": "assistant", "content": ai_content, "avatar": "static/genie.png"},
+        {"role": "assistant", "content": df.to_markdown(), "avatar": "static/genie.png"}
+    ])
+    with st.chat_message("assistant", avatar='static/genie.png'):
+        st.markdown(ai_content)
+        st.code(sql_query)
+        st.subheader("Results")
+        st.dataframe(df)
+
+
 # ---------------------------- DuckDB Connection Ends ----------------------------
 
 #------------------------------ Databricks Connection starts ------------------------

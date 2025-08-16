@@ -1,0 +1,250 @@
+         f"""
+You are an NL-to-SQL elite AI agent trained to handle complex NL to SQL queries.
+Database schema: 
+{schema_text}
+User question: {user_question}
+Generate a valid SQL query only. Return only the query without any explanation.
+"""
+
+def process(self, input_dict):
+        #df = input_dict.get('dataframe')
+        df_schema = self._get_schema_text(input_dict['dataframe'])
+        user_query = input_dict.get('user_query', '')
+
+        if df is None or df.empty:
+            return {"success": False, "error": "No data available for visualization."}
+
+        # Example: intelligent chart type selection could be added here
+        numeric_cols = df.select_dtypes(include='number').columns
+        if len(numeric_cols) < 1:
+            return {"success": False, "error": "No numeric columns to plot."}
+
+        # Simple example: show the first numeric column vs index
+        fig = px.line(df, y=numeric_cols[0], title=f"Visualization for: {user_query}")
+
+        return {"success": True, "fig": fig}
+
+
+#################### app.py ######################
+
+import streamlit as st
+import pandas as pd
+import plotly.io as pio
+import logging,toml
+from agents import DataEngineerAgent, ReasoningAgent, VisualizationAgent
+
+
+from utils import get_schema
+
+# Configure the logger
+logging.basicConfig(
+    format="%(asctime)s %(levelname)s %(message)s",
+    level=logging.INFO,
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+logger = logging.getLogger(__name__)
+
+
+
+
+def initialize_session_state():
+    """Initialize session state variables"""
+    if "schema" not in st.session_state:
+        st.session_state.schema = get_schema()
+
+    if "data_engineer" not in st.session_state:
+        st.session_state.data_engineer = DataEngineerAgent('data_engineer', st.session_state.schema)
+
+    if "reasoning_agent" not in st.session_state:
+        st.session_state.reasoning_agent = ReasoningAgent('reasoning_agent')
+
+    if "visualization_agent" not in st.session_state:
+        st.session_state.visualization_agent = VisualizationAgent('visualization_agent')
+
+    if "chat_history" not in st.session_state:
+        st.session_state.chat_history = []
+
+    # Viz agent clarication flags
+    if "clarification_active" not in st.session_state:
+        st.session_state.clarification_active = False
+    if "clarification_question" not in st.session_state:
+        st.session_state.clarification_question = None
+    if "pending_query" not in st.session_state:
+        st.session_state.pending_query = None
+    if "pending_df" not in st.session_state:
+        st.session_state.pending_df = None
+    if "pending_chart_agent_resp" not in st.session_state:
+        st.session_state.pending_chart_agent_resp = None
+
+def main():
+    st.set_page_config(page_title="Multi-Agent Data Assistant", layout="wide")
+    st.title("🤖 Multi-Agent Data Assistant")
+    st.markdown("Ask questions about your data and get SQL queries, explanations, and insights!")
+
+    initialize_session_state()
+    data_engineer = st.session_state.data_engineer
+    reasoning_agent = st.session_state.reasoning_agent
+    visualization_agent = st.session_state.visualization_agent
+
+
+    # Sidebar status and actions
+    with st.sidebar:
+        st.header("Agent Status")
+        st.success("🔧 Data Engineer Agent: Ready")
+        st.success("🤔 Reasoning Agent: Ready")
+        if st.button("Clear Chat History"):
+            st.session_state.chat_history = []
+            st.rerun()
+
+    # Display chat history
+    for entry in st.session_state.chat_history:
+        with st.chat_message("user"):
+            st.write(entry["user"])
+        with st.chat_message("assistant"):
+            st.write(entry["assistant"])
+        if "data" in entry and entry["data"]:
+            data = entry["data"]
+            if "dataframe" in data and data["dataframe"] is not None:
+                st.subheader("Query Results")
+                st.dataframe(data["dataframe"])
+            if "sql_query" in data and data["sql_query"] is not None:
+                st.subheader("Generated SQL")
+                st.code(data["sql_query"], language="sql")
+            if "fig_json" in data and data["fig_json"]:
+                fig = pio.from_json(data["fig_json"])
+                st.subheader("Visualization")
+                st.plotly_chart(fig, use_container_width=True)
+            
+
+    # Chat input
+    if prompt := st.chat_input("Ask about your data..."):
+        with st.chat_message("user"):
+            st.write(prompt)
+
+        # Step 1: data engineer agent generates SQL and executes
+        de_result = data_engineer.process({"text": prompt})
+        
+        if de_result.get("success") and "dataframe" in de_result and "sql_query" in de_result:
+            df = de_result["dataframe"]
+            sql_query = de_result["sql_query"]
+
+
+            # Step 2: reasoning agent explains results
+            reasoning_result = reasoning_agent.process({
+                "user_query": prompt,
+                "dataframe": df
+            })
+
+            explanation = reasoning_result.get("explanation", "")
+
+            vis_result = visualization_agent.process({"user_query": prompt, "dataframe": df, "clarification_history": []})
+
+            if vis_result.get("clarification_needed"):
+                st.session_state.clarification_active = True
+                st.session_state.clarification_question = vis_result["clarification_question"]
+                st.session_state.pending_query = prompt
+                st.session_state.pending_df = df
+                st.session_state.clarification_history = []
+                st.rerun() 
+
+                else: 
+                    fig_json = vis_result['fig'].to_json() if vis_result.get("fig") else None
+                    sql_query_str = de_result.get("sql_query") if de_result.get("sql_query") else None
+
+                    st.session_state.chat_history.append({
+                        "user": prompt,
+                        "assistant": explanation,
+                        "data": {
+                            "sql_query": sql_query_str,
+                            "dataframe": df.copy() if df is not None else None,
+                            "fig_json": fig_json,
+                        }
+                    }
+
+
+                    # Reset clarification state
+                    st.session_state.clarification_active = False
+                    st.session_state.clarification_question = None
+                    st.session_state.pending_query = None
+                    st.session_state.pending_df = None
+                    st.session_state.clarification_history = []
+                    st.rerun()  # to exit clarification mode   
+
+                    
+                #st.session_state.pending_chart_agent_resp = vis_result
+                # Display the clarification prompt 
+                if st.session_state.clarification_active and st.session_state.clarification_question:
+                    with st.chat_message("assistant"):
+                        st.write(st.session_state.clarification_question)
+                    # Optional: Use st.selectbox for multiple choice, or st.text_input for open-ended clarification
+                    clarification_input = st.chat_input("Please provide clarification...")
+                    if clarification_input:
+                        # Pass original query, DataFrame, and user's clarification back to the agent
+                        vis_result2 = visualization_agent.process({
+                            "user_query": st.session_state.pending_query,
+                            "dataframe": st.session_state.pending_df,
+                            "clarification": clarification_input,  # Your agent should handle this extra input
+                        })
+                        # Store visualization and explanation in history
+                        # Reset clarification state
+                        st.session_state.clarification_active = False
+                        st.session_state.clarification_question = None
+                        st.session_state.pending_query = None
+                        st.session_state.pending_df = None
+                        st.session_state.pending_chart_agent_resp = None
+                        # Use vis_result2 as you would any vis_result (store, render, etc.)
+
+
+            else:
+                # ...clear all pending clarification
+                st.session_state.clarification_active = False
+                st.session_state.clarification_question = None
+                st.session_state.pending_query = None
+                st.session_state.pending_df = None
+                st.session_state.pending_chart_agent_resp = None
+                # process and render normally (store figure, explanation, etc.)
+
+
+
+                fig_json = None
+                
+                if vis_result.get('success') and 'fig' in vis_result:
+                    st.subheader("Visualization")
+                    st.plotly_chart(vis_result['fig'], use_container_width=True)
+                    fig_json = vis_result['fig'].to_json()
+                elif not vis_result.get('success'):
+                    st.info(f"Visualization: {vis_result.get('error', '')}")
+
+
+            # Store in chat history
+            st.session_state.chat_history.append({
+                "user": prompt,
+                "assistant": explanation,
+                "data": {
+                    "sql_query": sql_query,
+                    "dataframe": df,
+                    "fig_json": fig_json
+                }
+            })
+
+            # Output current reply to UI
+            with st.chat_message("assistant"):
+                st.write(explanation)
+            if sql_query:
+                st.subheader("Generated SQL")
+                st.code(sql_query, language="sql")
+            if df is not None and isinstance(df, pd.DataFrame):
+                st.subheader("Query Results")
+                st.dataframe(df)
+        else:
+            error_msg = "Failed to fetch data or generate SQL."
+            st.session_state.chat_history.append({
+                "user": prompt,
+                "assistant": error_msg,
+                "data": None
+            })
+            with st.chat_message("assistant"):
+                st.write(error_msg)
+
+if __name__ == "__main__":
+    main()
