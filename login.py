@@ -35,7 +35,7 @@ else:
 
         if submitted:
             # Authenticate against DB
-            conn = duckdb.connect("users_db.duckdb")
+            conn = duckdb.connect("./data/users_db.duckdb")
             pw_hash = hash_password(password)
             user = conn.execute(
                 "SELECT * FROM users WHERE username=? AND password_hash=?",

@@ -7,6 +7,7 @@ from agents import DataEngineerAgent, VisualizationAgent
 from utils import get_schema
 # === NEW ===
 from router import Router
+from streamlit_mic_recorder import mic_recorder, speech_to_text
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ def initialize_session_state():
     if "pending_clarification" not in st.session_state:
         # shape: {"context": "data"|"visualization", "original_prompt": str, "history": [str]}
         st.session_state.pending_clarification = None
+    # Speech to text    
+    if "is_recording" not in st.session_state:
+        st.session_state.is_recording = False
+    if "recorded_text" not in st.session_state:
+        st.session_state.recorded_text = ""
 
 # --- History Rendering ---
 def render_history():
@@ -235,11 +241,11 @@ def main():
     #st.set_page_config(page_title="Data Assistant", layout="wide")
     # st.title("🤖 Data Assistant")
 
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        st.image("static/genie.png", width=120)  # Adjust width as needed
-    with col2:
-        st.markdown("<h1>Genieverse</h1>", unsafe_allow_html=True)
+    # col1, col2 = st.columns([1, 5])
+    # with col1:
+    #     st.image("static/genie.png", width=120)  # Adjust width as needed
+    # with col2:
+    #     st.markdown("<h1>Genieverse</h1>", unsafe_allow_html=True)
 
     initialize_session_state()
     with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
@@ -247,7 +253,37 @@ def main():
 
     render_history()
 
+    # Single toggle button
+    if not st.session_state.is_recording:
+        if st.button("🎙️ Try Voice instead"):
+            st.session_state.is_recording = True
+            st.rerun()
+
+
+    # Recording section
+    if st.session_state.is_recording:
+        text = speech_to_text(
+            language="en",
+            just_once=False,
+            key="voice_input",
+            use_container_width=False
+        )
+        
+        if text:
+            st.session_state.recorded_text = text
+            user_input = text
+            logger.info("Voice Generated Text:\n%s",user_input)
+            st.session_state.is_recording = False
+            st.rerun()
+    if st.session_state.recorded_text:
+        user_input = st.session_state.recorded_text
+        
     user_input = st.chat_input("Ask about your data.")
+
+
+    
+    
+
     if not user_input:
         return
 
