@@ -53,16 +53,16 @@ def render_history():
 
         data = entry.get("data", {})
         if data:
-            if "sql_query" in data and data["sql_query"]:
-                st.subheader("Generated SQL")
-                st.code(data["sql_query"], language="sql")
+            # if "sql_query" in data and data["sql_query"]:
+            #     st.subheader("Generated SQL")
+            #     st.code(data["sql_query"], language="sql")
             if "dataframe" in data and isinstance(data["dataframe"], pd.DataFrame):
                 st.subheader("Query Results")
                 st.dataframe(data["dataframe"])
             if "fig_json" in data and data["fig_json"]:
                 try:
                     fig = pio.from_json(data["fig_json"])
-                    st.subheader("Visualization")
+                    st.subheader(fig['data'][0]['type'].capitalize()+" Chart")
                     st.plotly_chart(fig, use_container_width=True)
                 except Exception as e:
                     logger.error(f"Failed to render stored fig_json: {e}")
@@ -199,6 +199,16 @@ def handle_pending_clarification(answer_text):
     if not pend:
         return False
 
+    st.session_state.chat_history.append({
+        "user": answer_text,
+        "assistant": None,
+        "avatar": None,
+        "data": {}
+    })
+
+    with st.chat_message("user"):
+        st.write(answer_text)
+
     # add the answer to history we pass back to the agent(s)
     clar_hist = pend.get("history", []) + [answer_text]
     original = pend.get("original_prompt", "")
@@ -207,15 +217,17 @@ def handle_pending_clarification(answer_text):
     # clear the pending state up front to avoid loops
     st.session_state.pending_clarification = None
 
+    combined_prompt = f"{original} — Clarification: {answer_text}"
+
     # continue the original request with the clarification
     if context == "data":
         # combine: original intent + extra detail
-        handle_data(f"{original} — Clarification: {answer_text}", clarification_history=clar_hist)
+        handle_data(combined_prompt, clarification_history=clar_hist)
     elif context == "visualization":
-        handle_visualization(f"{original} — Clarification: {answer_text}", clarification_history=clar_hist)
+        handle_visualization(combined_prompt, clarification_history=clar_hist)
     else:
         # fallback to data if unknown
-        handle_data(f"{original} — Clarification: {answer_text}", clarification_history=clar_hist)
+        handle_data(combined_prompt, clarification_history=clar_hist)
     return True
 
 # --- Main App ---
