@@ -2,7 +2,7 @@ import duckdb
 import hashlib
 
 # Connect to DuckDB & initialize user table
-conn = duckdb.connect('users_db.duckdb')
+conn = duckdb.connect('./data/users_db.duckdb')
  
 # Create users table if not exists
 conn.execute("""
