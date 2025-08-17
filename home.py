@@ -1,51 +1,36 @@
 import streamlit as st
+import app  # ✅ import app.py as module (make sure app.py is in same folder)
 
 def show_home():
-    # Inject custom HTML/CSS for absolute-positioned logout
-    st.markdown("""
-        <style>
-        .logout-button {
-            position: absolute;
-            top: -20px;
-            right: -250px;
-            z-index: 9999;
-        }
-        .logout-button form { display:inline; }
-        .logout-btn {
-            background-color: transparent;
-            border: 1px solid #E43636;
-            color: #E43636;
-            padding: 8px 24px;
-            font-size: 14px;
-            border-radius: 6px;
-            cursor: pointer;
-            font-weight: normal;
-            box-shadow: 1px 1px 4px rgba(0,0,0,0.11);
-            transition: background 0.2s;
-        }
-        .logout-btn:hover {
-            background-color: #E43636;
-            color: #ffffff;
-        }
-        </style>
-        <div class="logout-button">
-            <form action="" method="post">
-                <button name="logout" class="logout-btn" type="submit">Logout</button>
-            </form>
-        </div>
-    """, unsafe_allow_html=True)
+    username = st.session_state.get("username", "Guest")
+    #st.sidebar.write("DEBUG: Authenticated =", st.session_state.get("authenticated", None))
 
-    # Main app content
-    st.title("Welcome to Genieverse Home!")
-    st.write("This is the secured homepage. You are logged in.")
+        # --- Sidebar ---
+    with st.sidebar:
+        st.markdown(f"### 👋 Welcome, {username}")
+        # Navigation
+        page = st.radio("📂 Navigate", ["Chat with Genie", "View Profile","Connection Settings"])
 
-    #Check for POST to detect logout button submit
-    if st.session_state.get('authenticated', False):
-        if 'logout' in st.experimental_get_query_params():
-            st.session_state['authenticated'] = False
+        st.markdown("---")
+        if st.button("🚪 Logout", key="logout_sidebar"):
+            st.session_state["authenticated"] = False
+            st.session_state.pop("username", None)
+            st.query_params.clear()
             st.rerun()
 
-    # Fallback: Streamlit can't natively "catch" HTML form POST, so also offer:
-    if st.button("Logout (for accessibility)", key="sidebar_logout"):
-        st.session_state['authenticated'] = False
-        st.rerun()
+    # --- Logout button ---
+    col1, col2, col3 = st.columns([4, 1, 1])
+    with col3:
+        if st.button("Logout", key="logout_button", type="secondary", help="Click to logout"):
+            st.session_state["authenticated"] = False
+            st.session_state.pop("username", None)
+            st.query_params.clear()   # ✅ clear query params
+            st.rerun()
+
+    # --- Home Page Header ---
+    # st.title(f"Welcome to Genieverse Home, {username}!")
+    # st.write("This is the secured homepage. You are logged in.")
+    # st.markdown("---")
+
+    # --- Embed Chat Assistant from app.py ---
+    app.main()

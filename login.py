@@ -1,14 +1,31 @@
 import streamlit as st
 import duckdb
 import hashlib
+import home  
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
-if 'authenticated' not in st.session_state:
-    st.session_state['authenticated'] = False
+# --- Restore login state from query params ---
+params = st.query_params
+if params.get("auth") == "true":
+    st.session_state["authenticated"] = True
+    if "user" in params:
+        st.session_state["username"] = params["user"]
+else:
+    if "authenticated" not in st.session_state:
+        st.session_state["authenticated"] = False
 
-if not st.session_state['authenticated']:
+# Debug
+#st.sidebar.write("DEBUG: Authenticated =", st.session_state.get("authenticated", None))
+
+# Unified logic
+if st.session_state["authenticated"]:
+    # keep query param set so refresh stays logged in
+    st.query_params.update({"auth": "true", "user": st.session_state.get("username", "")})
+    home.show_home()
+    st.stop()
+else:
     st.title("Login to Genieverse")
 
     with st.form("login_form"):
@@ -26,14 +43,10 @@ if not st.session_state['authenticated']:
             ).fetchone()
             conn.close()
             if user:
-                st.session_state['authenticated'] = True
+                st.session_state["authenticated"] = True
+                st.session_state["username"] = username
+                st.query_params.update({"auth": "true", "user": username})  # ✅ persist login
                 st.success("Login successful! Redirecting...")
                 st.rerun()
             else:
                 st.error("Invalid username or password")
-else:
-    # After authentication, render home page
-    import home
-    home.show_home()  # You'll define this function in home.py
-
-# --- End of login.py ---
