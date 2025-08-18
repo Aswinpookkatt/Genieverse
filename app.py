@@ -175,6 +175,8 @@ def handle_data(prompt, clarification_history=None):
     with st.chat_message("assistant",avatar=ASSISTANT_AVATAR):
         st.write("Fetched results.")
 
+    logger.info("Display SQL Query:\n%s", sql_query)
+
     # if sql_query:
     #     st.subheader("Generated SQL")
     #     st.code(sql_query, language="sql")
@@ -332,8 +334,6 @@ def main():
         handle_data(user_input)
     elif route == "visualization":
         handle_visualization(user_input)
-    # elif route == "reasoning":
-    #     handle_reasoning(user_input)
     else:
         # "multi": run data first, then attempt a visualization on the result
         handle_data(user_input)

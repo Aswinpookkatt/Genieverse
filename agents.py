@@ -109,7 +109,7 @@ Rules:
 - If returning SQL: output only the SQL, nothing else.
 - Prefer clear, unambiguous SQL. Add "LIMIT 100" if not specified.
 - Use ANSI for dates (e.g., CURRENT_DATE).
-- Treat names/usernames as case-insensitive.
+- Treat names/usernames or category  as case-insensitive.
 """
         try:
             resp = self.model.generate_content(prompt)
