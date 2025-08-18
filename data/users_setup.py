@@ -19,7 +19,7 @@ def hash_password(password):
 
 # Function to add a sample user (only for demo; in production, use registration logic)
 def add_sample_user():
-    username = 'admin'
+    username = 'Aswin'
     password = 'root'
     password_hash = hash_password(password)
     # Check if user exists before inserting

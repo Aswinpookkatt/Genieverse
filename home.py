@@ -1,6 +1,7 @@
 import streamlit as st
 import app,base64  # ✅ import app.py as module (make sure app.py is in same folder)
 from data_scanner.profiler_page import show_data_profiler
+from connection_settings import show_connection_settings
 
 def get_base64_image(image_path):
     with open(image_path, "rb") as f:
@@ -8,7 +9,35 @@ def get_base64_image(image_path):
 
 logo_base64 = get_base64_image("static/genie.png")
 
+def restore_connection_state():
+    """Restore connection state from query parameters"""
+    params = st.query_params
+    
+    if params.get("db_connected") == "true" and "connection" not in st.session_state:
+        # Restore connection state from query params
+        st.session_state.connection = {
+            "active": True,
+            "type": params.get("db_type", "DuckDB"),
+            "details": {
+                "database": params.get("db_path", "./data/amazon.duckdb")
+            },
+            "last_connected": params.get("db_connected_at", ""),
+            "connection_obj": None
+        }
+    elif "connection" not in st.session_state:
+        # Initialize default connection state
+        st.session_state.connection = {
+            "active": False,
+            "type": None,
+            "details": {},
+            "last_connected": None,
+            "connection_obj": None
+        }
+
 def show_home():
+    # Restore connection state on page load
+    restore_connection_state()
+    
     username = st.session_state.get("username", "Guest")
     #st.sidebar.write("DEBUG: Authenticated =", st.session_state.get("authenticated", None))
 
@@ -41,7 +70,12 @@ def show_home():
 
 
         # Navigation
-        page = st.radio("Choose Action 🕹️ ", ["Chat with Genie", "Data Profiler","Connection Settings"])
+        # Handle redirect to connection settings
+        if hasattr(st.session_state, 'redirect_to_connection') and st.session_state.redirect_to_connection:
+            page = "Weave Connections"
+            st.session_state.redirect_to_connection = False
+        else:
+            page = st.radio("Choose Action 🕹️ ", ["Chat with Genie", "Genie Profiler","Weave Connections"])
 
         st.markdown("---")
 
@@ -66,10 +100,21 @@ def show_home():
 
     # --- Page Navigation ---
     if page == "Chat with Genie":
-        # --- Embed Chat Assistant from app.py ---
-        app.main()
-    elif page == "Data Profiler":
-        show_data_profiler()
-    elif page == "Connection Settings":
-        st.write("🔧 Connection Settings")
-        st.info("Connection settings functionality coming soon...")
+        # Check if database is connected before allowing chat
+        if hasattr(st.session_state, 'connection') and st.session_state.connection.get("active"):
+            # --- Embed Chat Assistant from app.py ---
+            app.main()
+        else:
+            st.warning("🔴 Database Not Connected")
+            st.info("Please connect to a database in 'Weave Connections' before using the chat feature.")
+                    
+    elif page == "Genie Profiler":
+        # Check if database is connected before allowing profiling
+        if hasattr(st.session_state, 'connection') and st.session_state.connection.get("active"):
+            show_data_profiler()
+        else:
+            st.warning("🔴 Database Not Connected")
+            st.info("Please connect to a database first to use the Genie Profiler.")
+            
+    elif page == "Weave Connections":
+        show_connection_settings()

@@ -1,44 +1,136 @@
 
 import toml
 import pandas as pd
-#from databricks import sql
 import duckdb
+import sqlite3
+import streamlit as st
 
 # Load config once
 _cfg = toml.load("config.toml")
 _conn = None
 _schema_cache = None    # ← Add a module-level cache
-#_datagenie_selected = False   
-# ---------------------------- DuckDB Connection Starts ----------------------------
+
+# ---------------------------- Dynamic Database Connection ----------------------------
 
 def get_connection():
+    """Get database connection based on session state or config"""
     global _conn
-    if _conn is None:
-        # You can use ':memory:' for in-memory DB, or a file path for persistent DB
-        db_path = _cfg.get("duckdb_path", ":memory:")
-        _conn = duckdb.connect(database=db_path)
+    
+    # Check if we have an active connection in session state
+    if hasattr(st.session_state, 'connection') and st.session_state.connection.get("active"):
+        conn_info = st.session_state.connection
+        db_type = conn_info["type"]
+        details = conn_info["details"]
+        
+        try:
+            if db_type == "DuckDB":
+                db_path = details.get("database", ":memory:")
+                _conn = duckdb.connect(database=db_path)
+            elif db_type == "SQLite":
+                db_path = details.get("database")
+                _conn = sqlite3.connect(db_path)
+            # Add support for PostgreSQL and MySQL if needed
+            # elif db_type == "PostgreSQL":
+            #     import psycopg2
+            #     _conn = psycopg2.connect(**details)
+            # elif db_type == "MySQL":
+            #     import mysql.connector
+            #     _conn = mysql.connector.connect(**details)
+                
+        except Exception as e:
+            st.error(f"Failed to connect to database: {e}")
+            return None
+    
+    # Fallback to config file (for backward compatibility)
+    elif _conn is None:
+        db_config = _cfg.get("database", {})
+        if db_config:
+            db_type = db_config.get("type", "DuckDB")
+            connection_params = db_config.get("connection", {})
+            
+            if db_type == "DuckDB":
+                db_path = connection_params.get("database", _cfg.get("duckdb_path", "./data/amazon.duckdb"))
+                _conn = duckdb.connect(database=db_path)
+            elif db_type == "SQLite":
+                db_path = connection_params.get("database")
+                if db_path:
+                    _conn = sqlite3.connect(db_path)
+        else:
+            # Default fallback to DuckDB with amazon.duckdb
+            db_path = _cfg.get("duckdb_path", "./data/amazon.duckdb")
+            _conn = duckdb.connect(database=db_path)
+    
     return _conn
 
 def get_schema() -> dict:
+    """Get database schema with support for different database types"""
     global _schema_cache
     if _schema_cache is not None:
         return _schema_cache
 
     conn = get_connection()
-    # Get list of tables
-    tables_df = conn.execute("SHOW TABLES").fetchdf()
+    if conn is None:
+        return {}
+    
     schema = {}
-    for t in tables_df['name']:
-        # Get columns for each table
-        cols_df = conn.execute(f"DESCRIBE {t}").fetchdf()
-        schema[t] = cols_df['column_name'].tolist()
-    _schema_cache = schema
+    
+    try:
+        # Determine database type
+        db_type = "DuckDB"  # Default
+        if hasattr(st.session_state, 'connection') and st.session_state.connection.get("active"):
+            db_type = st.session_state.connection["type"]
+        
+        if db_type == "DuckDB":
+            # DuckDB schema query
+            tables_df = conn.execute("SHOW TABLES").fetchdf()
+            for t in tables_df['name']:
+                cols_df = conn.execute(f"DESCRIBE {t}").fetchdf()
+                schema[t] = cols_df['column_name'].tolist()
+                
+        elif db_type == "SQLite":
+            # SQLite schema query
+            cursor = conn.cursor()
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [row[0] for row in cursor.fetchall()]
+            
+            for table in tables:
+                cursor.execute(f"PRAGMA table_info({table})")
+                columns = [col[1] for col in cursor.fetchall()]
+                schema[table] = columns
+        
+        _schema_cache = schema
+        
+    except Exception as e:
+        st.error(f"Error loading schema: {e}")
+        schema = {}
+    
     return schema
 
 def run_query(query: str) -> pd.DataFrame:
+    """Execute SQL query and return results as DataFrame"""
     conn = get_connection()
-    result_df = conn.execute(query).fetchdf()
-    return result_df
+    if conn is None:
+        return pd.DataFrame()
+    
+    try:
+        # Determine database type for proper query execution
+        db_type = "DuckDB"  # Default
+        if hasattr(st.session_state, 'connection') and st.session_state.connection.get("active"):
+            db_type = st.session_state.connection["type"]
+        
+        if db_type == "DuckDB":
+            result_df = conn.execute(query).fetchdf()
+        elif db_type == "SQLite":
+            result_df = pd.read_sql_query(query, conn)
+        else:
+            # Fallback to pandas read_sql
+            result_df = pd.read_sql_query(query, conn)
+            
+        return result_df
+        
+    except Exception as e:
+        st.error(f"Error executing query: {e}")
+        return pd.DataFrame()
 
 
 def is_modification_query(sql_query: str) -> bool:

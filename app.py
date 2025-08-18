@@ -13,7 +13,11 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 ASSISTANT_AVATAR = "static/genie.png"
-GREETING_MESSAGE = "Hello, I am your Data Genie. 🔥 away with your question!"
+
+def get_greeting_message():
+    """Get personalized greeting message based on logged-in user"""
+    username = st.session_state.get("username", "Guest")
+    return f"Hello {username}, I am your Data Genie. 🔥 away with your question!"
 
 # --- Session Initialization ---
 def initialize_session_state():
@@ -27,7 +31,7 @@ def initialize_session_state():
         st.session_state.chat_history = []
         st.session_state.chat_history.append({
             "role": "assistant",
-            "content": GREETING_MESSAGE,
+            "content": get_greeting_message(),
             "avatar": ASSISTANT_AVATAR
         })   
     if "last_sql_query" not in st.session_state:
@@ -277,7 +281,7 @@ def main():
 
     initialize_session_state()
     with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
-        st.write(GREETING_MESSAGE)
+        st.write(get_greeting_message())
 
     render_history()
 
