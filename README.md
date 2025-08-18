@@ -1,4 +1,4 @@
-# 🧞‍♂️ Genieverse - Voice-Activated SQL Agent
+# 🧞‍♂️ Genieverse - Voice-Activated Data Analytics Platform
 
 A powerful, voice-enabled data analysis platform that converts natural language to SQL queries and generates visualizations. Built with Streamlit and powered by Google Gemini AI.
 
@@ -209,7 +209,7 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-For support, email your-email@example.com or open an issue on GitHub.
+For support open an issue on GitHub.
 
 ---
 
