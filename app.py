@@ -7,6 +7,7 @@ from agents import DataEngineerAgent, VisualizationAgent
 from utils import get_schema
 # === NEW ===
 from router import Router
+from streamlit_mic_recorder import mic_recorder, speech_to_text
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,6 +40,14 @@ def initialize_session_state():
     if "pending_clarification" not in st.session_state:
         # shape: {"context": "data"|"visualization", "original_prompt": str, "history": [str]}
         st.session_state.pending_clarification = None
+
+    # Speech to text    
+    if "is_recording" not in st.session_state:
+        st.session_state.is_recording = False
+    if "recorded_text" not in st.session_state:
+        st.session_state.recorded_text = ""
+    if "last_query_completed" not in st.session_state:
+        st.session_state.last_query_completed = False
 
 # --- History Rendering ---
 def render_history():
@@ -127,6 +136,9 @@ def handle_visualization(prompt, clarification_history=None):
         st.subheader(fig['data'][0]['type'].capitalize()+" Chart")
         st.plotly_chart(fig, use_container_width=True)
         logger.info("Display Fig :\n%s",fig['data'][0]['type'].capitalize())
+
+    st.session_state.last_query_completed = True
+
 # --- Data Flow ---
 def handle_data(prompt, clarification_history=None):
     clarification_history = clarification_history or []
@@ -174,6 +186,8 @@ def handle_data(prompt, clarification_history=None):
         st.dataframe(df)
     else:
         st.warning("No data returned.")
+
+    st.session_state.last_query_completed = True
 
 # === NEW === Reasoning Flow (explain/query summary)
 def handle_reasoning(user_query):
@@ -230,16 +244,34 @@ def handle_pending_clarification(answer_text):
         handle_data(combined_prompt, clarification_history=clar_hist)
     return True
 
+
+def render_recording_section(position="top"):
+    key_suffix = "_top" if position == "top" else "_bottom"
+    if st.session_state.is_recording:
+        text = speech_to_text(
+            language="en",
+            just_once=False,
+            key=f"voice_input{key_suffix}",
+            use_container_width=False
+        )
+        
+        if text:
+            st.session_state.recorded_text = text
+            user_input = text
+            logger.info("Voice Generated Text:\n%s", user_input)
+            st.session_state.is_recording = False
+            st.rerun()
+
 # --- Main App ---
 def main():
     #st.set_page_config(page_title="Data Assistant", layout="wide")
     # st.title("🤖 Data Assistant")
 
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        st.image("static/genie.png", width=120)  # Adjust width as needed
-    with col2:
-        st.markdown("<h1>Genieverse</h1>", unsafe_allow_html=True)
+    # col1, col2 = st.columns([1, 5])
+    # with col1:
+    #     st.image("static/genie.png", width=120)  # Adjust width as needed
+    # with col2:
+    #     st.markdown("<h1>Genieverse</h1>", unsafe_allow_html=True)
 
     initialize_session_state()
     with st.chat_message("assistant", avatar=ASSISTANT_AVATAR):
@@ -247,9 +279,39 @@ def main():
 
     render_history()
 
-    user_input = st.chat_input("Ask about your data.")
+    # --- Top recorder (only before first query)
+    if not st.session_state.last_query_completed:
+        if not st.session_state.is_recording:
+            if st.button("🎙️ Try Voice instead", key="top_voice_btn"):
+                st.session_state.is_recording = True
+                st.rerun()
+        render_recording_section(position="top")
+
+
+    typed_input = st.chat_input("Ask about your data.")
+
+    # Prioritize voice text if present
+    if st.session_state.recorded_text:
+        user_input = st.session_state.recorded_text
+        st.session_state.recorded_text = ""  # Clear after using
+    elif typed_input:
+        user_input = typed_input
+    else:
+        user_input = None
+
+
+    
+    
+
     if not user_input:
+        if st.session_state.last_query_completed:
+            if not st.session_state.is_recording:
+                if st.button("🎙️ Try Voice instead (again)", key="bottom_voice_btn"):
+                    st.session_state.is_recording = True
+                    st.rerun()
+            render_recording_section(position="bottom")
         return
+
 
     # If there is a pending clarification, treat this message as the answer
     if handle_pending_clarification(user_input):
@@ -277,6 +339,14 @@ def main():
         handle_data(user_input)
         if st.session_state.last_df is not None and not st.session_state.last_df.empty:
             handle_visualization(user_input)
+
+    
+    if st.session_state.last_query_completed:
+        if not st.session_state.is_recording:
+            if st.button("🎙️ Try Voice instead (again)", key="bottom_voice_btn"):
+                st.session_state.is_recording = True
+                st.rerun()
+        render_recording_section(position="bottom")
 
 if __name__ == "__main__":
     main()

@@ -1,4 +1,5 @@
 streamlit
+streamlit-mic-recorder
 openai
 databricks-sql-connector[pyarrow]
 pandas
