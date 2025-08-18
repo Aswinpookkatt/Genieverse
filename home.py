@@ -1,5 +1,6 @@
 import streamlit as st
 import app,base64  # ✅ import app.py as module (make sure app.py is in same folder)
+from data_scanner.profiler_page import show_data_profiler
 
 def get_base64_image(image_path):
     with open(image_path, "rb") as f:
@@ -63,5 +64,12 @@ def show_home():
     # st.write("This is the secured homepage. You are logged in.")
     # st.markdown("---")
 
-    # --- Embed Chat Assistant from app.py ---
-    app.main()
+    # --- Page Navigation ---
+    if page == "Chat with Genie":
+        # --- Embed Chat Assistant from app.py ---
+        app.main()
+    elif page == "Data Profiler":
+        show_data_profiler()
+    elif page == "Connection Settings":
+        st.write("🔧 Connection Settings")
+        st.info("Connection settings functionality coming soon...")

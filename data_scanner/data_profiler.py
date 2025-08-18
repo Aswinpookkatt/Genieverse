@@ -43,7 +43,7 @@ class DataProfiler:
 
     def _profiler_column(self, table_name, column_name):
         """Profile Individual Column"""
-        try :
+        try:
             # Basic stats
             query = f"""
             SELECT  COUNT(*) as total_count,
@@ -64,36 +64,53 @@ class DataProfiler:
                 'data_type': self._infer_data_type(table_name,column_name)
             }
 
-
-            #Numeric column stats
+            # Add specific stats based on data type
             if profile['data_type'] in ['numeric','integer']:
                 profile.update(self._get_numeric_stats(table_name,column_name))
-                
-                return profile
+            elif profile['data_type'] == 'string':
+                profile.update(self._get_string_stats(table_name,column_name))
+            
+            return profile
 
         except Exception as e:
             logger.error(f"Error profiling column {column_name}:{e}")
-
             return {'error':str(e)}
 
     
     def _infer_data_type(self, table_name, column_name):
         """Infer column data type"""
-        query = f"DESCRIBE TABLE {table_name}"
+        try:
+            query = f"DESCRIBE TABLE {table_name}"
+            desc = run_query(query)
+            col_info = desc[desc['column_name']==column_name]
 
-        desc = run_query(query)
-        col_info = desc[desc['column_name']==column_name]
-
-        if not col_info.empty:
-            data_type = col_info.iloc[0]['column_type'].lower()
-            if any(x in data_type for x in ['int','bigint','smallint']):
-                return 'integer'
-            elif any(x in data_type for x in ['double','float','decimal']):
-                return 'numeric'
-            elif any(x in data_type for x in ['string', 'varchar', 'text']):
-                return 'string'
-            elif any(x in data_type for x in ['date', 'timestamp']):
-                return 'datetime'
+            if not col_info.empty:
+                data_type = col_info.iloc[0]['column_type'].lower()
+                
+                # Integer types
+                if any(x in data_type for x in ['int', 'bigint', 'smallint', 'tinyint', 'integer']):
+                    return 'integer'
+                # Numeric/Float types  
+                elif any(x in data_type for x in ['double', 'float', 'decimal', 'numeric', 'real']):
+                    return 'numeric'
+                # String/Text types (expanded list)
+                elif any(x in data_type for x in ['string', 'varchar', 'text', 'char', 'character']):
+                    return 'string'
+                # Date/Time types
+                elif any(x in data_type for x in ['date', 'timestamp', 'datetime', 'time']):
+                    return 'datetime'
+                # Boolean types
+                elif any(x in data_type for x in ['bool', 'boolean']):
+                    return 'boolean'
+                else:
+                    # Log the unrecognized type for debugging
+                    logger.warning(f"Unrecognized data type for {table_name}.{column_name}: {data_type}")
+                    return 'unknown'
+            else:
+                logger.warning(f"Column {column_name} not found in table {table_name}")
+                return 'unknown'
+        except Exception as e:
+            logger.error(f"Error inferring data type for {table_name}.{column_name}: {e}")
             return 'unknown'
 
     def _get_numeric_stats(self, table_name, column_name):
@@ -115,6 +132,29 @@ class DataProfiler:
             'mean_value': stats['mean_val'],
             'std_deviation': stats['std_dev']
             }
+    
+    def _get_string_stats(self, table_name, column_name):
+        """Get statistics for string columns"""
+        try:
+            query = f"""
+            SELECT 
+                MIN(LENGTH({column_name})) as min_length,
+                MAX(LENGTH({column_name})) as max_length,
+                AVG(LENGTH({column_name})) as avg_length
+            FROM {table_name}
+            WHERE {column_name} IS NOT NULL 
+            """
+            
+            stats = run_query(query).iloc[0]
+            
+            return {
+                'min_length': stats['min_length'],
+                'max_length': stats['max_length'],
+                'avg_length': stats['avg_length']
+            }
+        except Exception as e:
+            logger.warning(f"Could not get string stats for {column_name}: {e}")
+            return {}
     
     def _detect_anomalies(self, table_name, profile):
 
