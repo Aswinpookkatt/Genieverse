@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
@@ -76,7 +77,7 @@ class AgentResult:
 class DataEngineerAgent:
     """NL→SQL agent that returns SQL+data or asks for a concrete clarification."""
 
-    def __init__(self, name: str, schema: Dict[str, List[str]], model_name: str = "gemini-2.5-flash"):
+    def __init__(self, name: str, schema: Dict[str, List[str]], model_name: str = "gemini-2.5-pro"):
         self.name = name
         self.schema = schema or {}
         self.model = genai.GenerativeModel(model_name)
@@ -93,6 +94,8 @@ class DataEngineerAgent:
         schema_text = self._format_schema()
         clar_hist_text = "\n\nPrevious clarifications:\n" + "\n".join(f"- {c}" for c in clar_hist) if clar_hist else ""
         prompt = f"""
+⚠️ CRITICAL: When using SUM, COUNT, AVG or any aggregate function with other columns, ALL non-aggregate columns MUST be in GROUP BY clause!
+
 You are an expert NL-to-SQL assistant. Given a relational schema and a user's question, either:
 1) Return a single executable ANSI SQL statement (no explanation, no backticks), OR
 2) If the user's request is ambiguous or missing critical details needed to generate correct SQL, return ONLY this minified JSON object:
@@ -101,24 +104,132 @@ The clarification question must be specific and, when possible, list available c
 Clarification questions must also be understandable to non-technical users — Never use terms like "schema", "columns", "SQL", or "database". 
 Instead, use plain English and refer to them as "fields" or "parts of your data", and whenever possible directly list the available options.
 4) When generating SQL queries involving aggregation functions (such as AVG(), SUM(), MIN(), MAX()), if the column used is not of a numeric type, add an explicit cast to DOUBLE. For example, use AVG(CAST(discounted_price AS DOUBLE)) instead of AVG(discounted_price) if discounted_price is stored as VARCHAR.
+5) CRITICAL: When using GROUP BY, ensure ALL non-aggregate columns in SELECT appear in GROUP BY clause. If you need a column that varies within groups, use ANY_VALUE(column_name) or appropriate aggregate function.
+6) For queries requesting multiple different products or records based on different criteria (like "highest rating AND highest rating count"), use UNION ALL to combine results. Each SELECT should be in parentheses and include a descriptive label column.
+7) When dealing with "highest" or "top" queries, use proper ORDER BY and LIMIT clauses.
+8) For rating-related queries, remember that rating_count refers to the number of reviews, while rating refers to the average rating score.
+9) Common GROUP BY patterns:
+   - SELECT customer_id, COUNT(*) FROM orders GROUP BY customer_id
+   - SELECT category, ANY_VALUE(name), COUNT(*) FROM products GROUP BY category
+   - SELECT customer_id, ANY_VALUE(name), SUM(total_amount) FROM orders JOIN customers USING(customer_id) GROUP BY customer_id
+   - CUSTOMER SPENDING: SELECT c.customer_id, c.name, c.email, SUM(o.total_amount) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.name, c.email ORDER BY total_spent DESC
+
+⚠️ NEVER generate: SELECT T1.name, T1.email, SUM(...) FROM customers T1 JOIN orders T2... GROUP BY T1.customer_id
+✅ ALWAYS generate: SELECT c.customer_id, c.name, c.email, SUM(...) FROM customers c JOIN orders o... GROUP BY c.customer_id, c.name, c.email
+
 Schema:\n{schema_text}
 User question:\n{user_text}
 {clar_hist_text}
+
+Example for multiple criteria queries:
+User: "Show the product with highest rating and the product with highest rating count"
+Expected SQL:
+(SELECT product_name, CAST(rating AS DOUBLE) as rating, CAST(rating_count AS DOUBLE) as rating_count, 'Highest Rating' as criteria 
+ FROM Sales 
+ ORDER BY CAST(rating AS DOUBLE) DESC 
+ LIMIT 1)
+UNION ALL
+(SELECT product_name, CAST(rating AS DOUBLE) as rating, CAST(rating_count AS DOUBLE) as rating_count, 'Most Reviews' as criteria 
+ FROM Sales 
+ ORDER BY CAST(rating_count AS DOUBLE) DESC 
+ LIMIT 1)
+
+Example for customer spending queries:
+User: "show the list of users along with email and how much they spend in desc order"
+Expected SQL:
+SELECT c.customer_id, c.name, c.email, SUM(o.total_amount) as total_spent 
+FROM customers c 
+JOIN orders o ON c.customer_id = o.customer_id 
+GROUP BY c.customer_id, c.name, c.email 
+ORDER BY total_spent DESC
+
+IMPORTANT: For customer spending queries, use this EXACT template:
+SELECT c.customer_id, c.name, c.email, SUM(o.total_amount) as total_spent
+FROM customers c 
+JOIN orders o ON c.customer_id = o.customer_id 
+GROUP BY c.customer_id, c.name, c.email 
+ORDER BY total_spent DESC LIMIT 100
 
 Rules:
 - If returning SQL: output only the SQL, nothing else.
 - Prefer clear, unambiguous SQL. Add "LIMIT 100" if not specified.
 - Use ANSI for dates (e.g., CURRENT_DATE).
-- Treat names/usernames or category  as case-insensitive.
+- Treat names/usernames or category as case-insensitive.
+- MANDATORY GROUP BY RULE: When SELECT contains both aggregate functions (SUM, COUNT, AVG, MAX, MIN) AND non-aggregate columns, you MUST include ALL non-aggregate columns in the GROUP BY clause.
+- EXAMPLE ERROR: "SELECT name, email, SUM(amount) FROM ... GROUP BY customer_id" ❌ WRONG - missing name, email in GROUP BY
+- EXAMPLE CORRECT: "SELECT name, email, SUM(amount) FROM ... GROUP BY customer_id, name, email" ✅ CORRECT
+- For ANY query showing customer details with spending totals, ALWAYS use this exact pattern:
+  SELECT c.customer_id, c.name, c.email, SUM(...) as total_spent FROM customers c JOIN orders o ON c.customer_id = o.customer_id GROUP BY c.customer_id, c.name, c.email ORDER BY total_spent DESC
 """
-        try:
-            resp = self.model.generate_content(prompt)
-            return _strip_code_fences(resp.text)
-        except Exception as e:
-            logger.exception("LLM call failed in DataEngineerAgent: %s", e)
-            return ""
-
-    # -- main --
+        return self._call_api_with_retry(prompt)
+    
+    def _call_api_with_retry(self, prompt: str, max_retries: int = 3) -> str:
+        """Call Gemini API with retry logic for better reliability"""
+        for attempt in range(max_retries):
+            try:
+                # Add small delay between retries
+                if attempt > 0:
+                    time.sleep(2 ** attempt)  # Exponential backoff: 2, 4, 8 seconds
+                
+                resp = self.model.generate_content(prompt)
+                
+                # Better error handling for Gemini API responses
+                if not resp or not resp.candidates:
+                    logger.error(f"No response candidates returned from Gemini API (attempt {attempt + 1})")
+                    if attempt == max_retries - 1:
+                        return "I apologize, but I'm unable to process your request right now. Please try rephrasing your question."
+                    continue
+                
+                candidate = resp.candidates[0]
+                
+                # Check finish reason
+                if candidate.finish_reason == 1:  # STOP - normal completion
+                    if candidate.content and candidate.content.parts:
+                        return _strip_code_fences(candidate.content.parts[0].text)
+                    else:
+                        logger.error("Empty content in API response")
+                        if attempt == max_retries - 1:
+                            return "I need more information to generate a proper SQL query. Could you provide more details about what data you're looking for?"
+                        continue
+                
+                elif candidate.finish_reason == 2:  # MAX_TOKENS
+                    logger.error("Response truncated due to max tokens")
+                    if attempt == max_retries - 1:
+                        return "The query is too complex. Please try breaking it into smaller parts."
+                    continue
+                
+                elif candidate.finish_reason == 3:  # SAFETY
+                    logger.error("Response blocked by safety filters")
+                    return "I cannot process this request due to safety restrictions. Please rephrase your question."
+                
+                elif candidate.finish_reason == 4:  # RECITATION
+                    logger.error("Response blocked due to recitation")
+                    return "Please rephrase your question in a different way."
+                
+                else:
+                    logger.error(f"Unknown finish reason: {candidate.finish_reason}")
+                    if attempt == max_retries - 1:
+                        return "I encountered an issue processing your request. Please try again."
+                    continue
+                    
+            except Exception as e:
+                logger.exception(f"LLM call failed in DataEngineerAgent (attempt {attempt + 1}): %s", e)
+                
+                # Handle specific error types
+                if "500" in str(e) or "Internal" in str(e):
+                    if attempt == max_retries - 1:
+                        return "The AI service is temporarily unavailable. Please try again in a moment."
+                    continue  # Retry for server errors
+                elif "quota" in str(e).lower() or "limit" in str(e).lower():
+                    return "API quota exceeded. Please try again later."
+                elif "safety" in str(e).lower():
+                    return "Your request was filtered for safety. Please rephrase your question."
+                else:
+                    if attempt == max_retries - 1:
+                        return "I'm experiencing technical difficulties. Please try again or rephrase your question."
+                    continue  # Retry for other errors
+        
+        return "Unable to process request after multiple attempts. Please try again later."    # -- main --
     def process(self, input_dict: Dict[str, Any]) -> Dict[str, Any]:
         user_text = (input_dict or {}).get("text", "")
         clarification_history = (input_dict or {}).get("clarification_history", []) or []
@@ -153,6 +264,12 @@ Rules:
             return AgentResult(success=True, sql_query=sql, dataframe=df).to_dict()
         except Exception as e:
             logger.exception("SQL execution failed: %s", e)
+            error_msg = str(e).lower()
+            if "rating" in error_msg or "union" in error_msg:
+                return AgentResult(
+                    clarification_needed=True, 
+                    clarification_question="I'm having trouble with the rating query. Could you try asking for either 'the highest rated product' or 'the product with most reviews' separately?"
+                ).to_dict()
             return AgentResult(success=False, error=f"SQL execution failed: {e}").to_dict()
 
 

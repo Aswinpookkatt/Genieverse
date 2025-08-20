@@ -10,4 +10,5 @@ plotly
 psycopg2-binary
 mysql-connector-python
 toml
+faker
 

@@ -8,7 +8,7 @@ class Router:
     def __init__(self):
         # Keyword lists are matched as word fragments (case-insensitive)
         self.visual_keywords = {
-            "plot", "chart", "visualize", "visualisation", "visualization",
+            "plot", "chart", "visualize",'visualise', "visualisation", "visualization",
             "generate", "graph", "bar", "line", "scatter", "pie", "hist", "vs", "create","scatter"
         }
         self.sql_keywords = {

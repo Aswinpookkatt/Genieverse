@@ -102,22 +102,34 @@ def ask_clarification(question, context, prompt, extra=None):
 # --- Visualization Flow ---
 def handle_visualization(prompt, clarification_history=None):
     clarification_history = clarification_history or []
-    with st.spinner("Fetching data for visualization..."):
-        # ask the DE agent to produce a small preview dataset for chart inference
-        preview = st.session_state.data_engineer.process({
-            "text": f"Preview 20 rows for: {prompt}",
-            "clarification_history": clarification_history
-        })
-    if preview.get("clarification_needed"):
-        ask_clarification(preview["clarification_question"], "visualization", prompt, preview)
-        return
+    
+    # Use existing dataframe if available, otherwise fetch new data
+    if st.session_state.last_df is not None and not st.session_state.last_df.empty:
+        df = st.session_state.last_df
+        logger.info("Using existing dataframe for visualization with %d rows", len(df))
+    else:
+        with st.spinner("Fetching data for visualization..."):
+            # ask the DE agent to produce a small preview dataset for chart inference
+            preview = st.session_state.data_engineer.process({
+                "text": f"Preview 20 rows for: {prompt}",
+                "clarification_history": clarification_history
+            })
+        if preview.get("clarification_needed"):
+            ask_clarification(preview["clarification_question"], "visualization", prompt, preview)
+            return
 
-    df = preview.get("dataframe")
+        df = preview.get("dataframe")
     vis_result = st.session_state.visualization_agent.process({
         "user_query": prompt,
         "dataframe": df,
         "clarification_history": clarification_history
     })
+    
+    # Log the data being used for visualization
+    if df is not None and not df.empty:
+        logger.info("Visualization using dataframe with columns: %s", list(df.columns))
+        logger.info("First few rows for visualization: %s", df.head().to_dict('records') if len(df) > 0 else [])
+    
     if vis_result.get("clarification_needed"):
         ask_clarification(vis_result["clarification_question"], "visualization", prompt, df)
         return
